@@ -1,0 +1,213 @@
+---
+title: '0111'
+author: "chanwoo"
+date: '2020 1 11 '
+output: html_document
+---
+
+
+```{r setting, include=FALSE}
+# 전처리 패키지
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(lubridate)
+# 시각화 패키지
+library(ggplot2)
+library(xtable)
+# 마크다운 패키지
+library(DT)
+library(knitr)
+# 텍스트 마이닝 패키지
+library(tidytext)
+library(KoNLP)
+# 모델링 패키지
+library(caret)
+library(naivebayes)
+library(randomForest)
+# 모델링 평가
+library(ROCR)
+
+# 데이터 샘플링을 위해 새롭게 불러들인다.
+load("../data/RData/origin.RData")
+```
+
+
+```{r}
+data$length = data$text %>% str_length() # 문자길이
+
+data$TML = ifelse(data$length > 400, 1, 0) # X
+
+# 넘버링
+data$text = data$text %>% str_replace_all("[\\d.]+\\d+%", " ") # %(백분율) 제거
+numbering_str = "\\d{1,2}\\.[^\\d]" # 넘버링 정규표현식 
+# 넘버링 더미변수
+data = data %>% mutate(numbering = data$text %>% str_extract_all(numbering_str) %>% 
+                       sapply(length) %>%
+                       sapply(function(x){
+                         ifelse(x>1, # 넘버링은 최소 2개 이상이어야 함
+                                1,
+                                0)
+                       }))
+
+
+# 괄호 빈도
+bracket_str = "\\(.*?\\)"
+# 괄호 빈도 변수 생성
+data$bracket_freq = data$text %>% str_extract_all(bracket_str) %>% sapply(length)
+
+# 대출용어 빈도
+loan_terms_str = paste(c("론", "원리금", "여신","한도","사기","최저","대출","KISA",
+                              "부채", "담보", "채무", "상환", "미납", "체납", "금융", "대환", "대부", "다중"), collapse = "|")
+data$loan_terms_freq = data$text %>% str_extract_all(loan_terms_str) %>% sapply(length)
+
+
+# 법적절차 용어
+law_terms_str = paste(c("영업일", "증명서"), collapse = "|")
+data$law_terms_freq = data$text %>% str_extract_all(law_terms_str) %>% sapply(length)
+
+
+# 올림 변수 추가
+data$to = data$text %>% str_detect("올림") %>% ifelse(1, 0)
+
+
+# 신청방법
+data$http = data$text %>% str_detect("http") %>% ifelse(1, 0) # 홈페이지
+data$app = data$text %>% str_detect("스토어") %>% ifelse(1, 0) # 모바일
+
+# factor화
+data$smishing = as.factor(data$smishing)
+
+```
+
+
+# data split
+```{r}
+index_train = createDataPartition(data$smishing, p=.7, list=F)
+
+train = data[index_train, ]
+test = data[-index_train, ]
+
+train %>% dim
+test %>% dim
+```
+
+# learning
+```{r}
+modelFit = caret::train(smishing ~ TML + bracket_freq + loan_terms_freq + law_terms_freq + to + http + app ,
+                        train,
+                        method = 'naive_bayes')
+modelFit
+```
+
+
+# apply model
+```{r}
+test$pred = predict(modelFit, newdata = test)
+confusionMatrix(test$pred, test$smishing)
+```
+
+# feedback
+```{r}
+# test FP
+test %>%
+  filter(pred == 0, smishing == 1) %>%
+  select(TML, numbering, bracket_freq, loan_terms_freq, law_terms_freq, to, http, app) %>% # 사용한 feature
+  apply(2, mean)
+
+# test FN
+test %>%
+  filter(pred == 1, smishing == 0)%>%
+  select(TML, numbering, bracket_freq, loan_terms_freq, law_terms_freq, to, http, app) %>% # 사용한 feature
+  apply(2, mean)
+```
+
+# random forest
+```{r}
+rf.fit = randomForest(smishing ~ length + bracket_freq + loan_terms_freq + law_terms_freq + to + http + app, 
+                      data=train, mtry = floor(sqrt(7)), ntree = 500, importance = T)
+# mtry: tree 마다 몇 개의 feature를 사용할 것인지
+## regression: 변수개수/3
+## classification: sqrt(변수개수)
+
+# ntree: tree의 총 개수
+
+# 변수 중요도 출력
+importance(rf.fit)
+varImpPlot(rf.fit)
+```
+정확도: MeanDecreaseAccuracy  
+노드 불순도 개선:MeanDecreaseGini  
+
+**loan_terms_freq** 가 가장 중요한 변수  
+non-smishing에서는 **to**(올림), **app**(앱 신청)이 중요하며,  
+smishing에서는 **loan_terms_freq**(대출형 단어), **to**(올림) 변수가 중요  
+
+```{r}
+predict(rf.fit, newdata = test) %>% confusionMatrix(test$smishing)
+```
+
+# 데이터 제출
+```{r}
+# 모델 적용
+df = read.csv("../data/public_test.csv")
+
+df$length = df$text %>% str_length() # 문자길이
+
+df$TML = ifelse(df$length > 400, 1, 0) # X
+
+# 넘버링
+df$text = df$text %>% str_replace_all("[\\d.]+\\d+%", " ") # %(백분율) 제거
+numbering_str = "\\d{1,2}\\.[^\\d]" # 넘버링 정규표현식 
+# 넘버링 더미변수
+df = df %>% mutate(numbering = df$text %>% str_extract_all(numbering_str) %>% 
+                       sapply(length) %>%
+                       sapply(function(x){
+                         ifelse(x>1, # 넘버링은 최소 2개 이상이어야 함
+                                1,
+                                0)
+                       }))
+
+
+# 괄호 빈도
+bracket_str = "\\(.*?\\)"
+# 괄호 빈도 변수 생성
+df$bracket_freq = df$text %>% str_extract_all(bracket_str) %>% sapply(length)
+
+# 대출용어 빈도
+loan_terms_str = paste(c("론", "원리금", "여신","한도","사기","최저","대출","KISA",
+                              "부채", "담보", "채무", "상환", "미납", "체납", "금융", "대환", "대부", "다중"), collapse = "|")
+df$loan_terms_freq = df$text %>% str_extract_all(loan_terms_str) %>% sapply(length)
+
+
+# 법적절차 용어
+law_terms_str = paste(c("영업일", "증명서"), collapse = "|")
+df$law_terms_freq = df$text %>% str_extract_all(law_terms_str) %>% sapply(length)
+
+
+# 올림 변수 추가
+df$to = df$text %>% str_detect("올림") %>% ifelse(1, 0)
+
+
+# 신청방법
+df$http = df$text %>% str_detect("http") %>% ifelse(1, 0) # 홈페이지
+df$app = df$text %>% str_detect("스토어") %>% ifelse(1, 0) # 모바일
+```
+
+```{r}
+# 만든 모델을 test에 적용
+predict(rf.fit, newdata = df, type = "prob") %>% head() # 확률 반환
+predict(rf.fit, newdata = df, type = "prob")[,2] %>% head() # 1(smishing)일 확률
+
+df$pred = predict(rf.fit, newdata = df, type = "prob")[,2]
+
+df %>% head
+```
+
+```{r}
+submit = data.frame(id = df$id, smishing = df$pred)
+
+submit %>% head
+write.csv(submit, file = "submision.csv", row.names = F)
+```
+

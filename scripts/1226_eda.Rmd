@@ -1,0 +1,111 @@
+---
+title: '1226'
+author: "chanwoo"
+date: '2019 12 26 '
+output: html_document
+---
+
+# 1주차 2번째 모임
+- 
+```{r include=FALSE}
+# 전처리 패키지
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(lubridate)
+# 시각화 패키지
+library(ggplot2)
+# 마크다운 패키지
+library(DT)
+library(knitr)
+
+load("../data/RData/eda.RData")
+```
+
+## 월별 스미싱 빈도
+```{r}
+train.smishing_freq_table = train %>% group_by(year_month) %>% summarise(total = n(),
+                                             smishing_sum = sum(smishing),
+                                             smishing_rate = round(smishing_sum/total,2))
+
+train.smishing_freq_table
+```
+
+```{r}
+train.smishing_freq_table %>% 
+  gather(key="key", value="value", total, smishing_sum) 
+
+train.smishing_freq_table %>% 
+  gather(key="key", value="value", total, smishing_sum) %>% 
+  # 시각화
+  ggplot(aes(x=factor(year_month),
+             y=value,
+             fill=key)) +
+  geom_bar(stat="identity", position="dodge") +
+  coord_flip()
+```
+  
+전체적으로 봤을 때 연도별로 별반 차이는 없는 것 같다.
+
+```{r}
+# 월별 스미싱 문자 빈도 수
+train.smishing_freq_table %>%
+  ggplot(aes(x=year_month,
+             y=smishing_sum)) +
+  geom_bar(stat="identity")
+
+train.smishing_freq_table %>% 
+  mutate(year = year(year_month),
+         month = month(year_month)) %>%
+    ggplot(aes(x=factor(month),
+             y=smishing_sum,
+             group=year)) +
+  geom_bar(stat="identity") +
+  facet_grid(.~year)
+```
+  
+년도별로 봤을 때는 2017년에 비해 2018년 스미싱 문자 빈도가 크다.  
+월별로 봤을 때는 두 해 모두 상대적으로 *5월*이 낮다.  
+
+
+## 글자 수
+*스미싱 문자는 투머치토커일 수 있다*는 가정하에 분석  
+
+```{r}
+# 글자 수 변수 생성
+train$length = train.str_length
+
+train %>% head
+
+# 글자 수 분포
+train$length %>% hist()
+
+# MMS 변수 생성
+train$MMS = ifelse(train$length > 70, 1, 0)
+
+table(train$MMS)
+
+table(smishing = train$smishing, MMS = train$MMS)
+```
+
+스미싱 문자는 대부분 **MMS**  
+
+
+
+
+```{r}
+# MMS 분포를 살펴보자
+# boxplotd으로 살펴보자
+boxplot(train$length ~ train$MMS, outline=FALSE)
+
+# summary 5
+summary(train[train$MMS == 1,"length"])
+summary(train[train$MMS == 0,"length"])
+```
+
+```{r}
+save(train, test, train.smishing, train.smishing_freq_table, # data.frame
+     train.str_length, # vector
+     file = "../data/RData/eda.RData")
+```
+

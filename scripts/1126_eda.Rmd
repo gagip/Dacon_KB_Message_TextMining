@@ -1,0 +1,88 @@
+---
+title: "eda"
+author: "chanwoo"
+date: '2019 12 18 '
+output: html_document
+---
+
+# EDA
+```{r}
+library(dplyr)
+library(ggplot2)
+library(stringr)
+library(lubridate)
+library(DT)
+library(knitr)
+
+train = read.csv("../data/train.csv", stringsAsFactors = F)
+test = read.csv("../data/public_test.csv", stringsAsFactors = F)
+```
+
+```{r}
+train %>% head %>% datatable()
+```
+
+## 발송 기간
+```{r}
+# 자료형 변환
+train$year_month = train$year_month %>% ymd(truncated = 2)
+train$year_month %>% table %>% plot %>% s
+```
+  
+2017년부터 2018년말까지 데이터  
+가장 많이 발송된 시기가 2017년도 4월  
+
+12월 ~ 2월, 7월 ~8월은 발송 수가 상대적으로 적음  
+
+
+## 글자 수
+```{r}
+# 글자 수 hist
+train.str_length = train$text %>% str_length()
+
+train.str_length %>% hist
+
+
+# 최대, 최소
+train.str_length %>% which.max() %>% train[.,"text"] # 글자 수 max
+
+train.str_length %>% which.min() %>% train[.,"text"] # 글자 수 min 
+```
+  
+대부분 100글자 이내로 문자 발송  
+
+이상값도 존재한다. 가장 글자 수가 적은 문자에는 "1"이라고 적혀있고, 
+가장 글자 수가 많은 문자에는 이상한 문자 내용이다.  
+그러나 더 놀라운 것은 두 문자 다 smishing이 아니다.  
+
+## smishing 데이터 추출
+```{r}
+# smishing 추출
+train.smishing = train %>% filter(smishing == 1)
+train.smishing %>% nrow
+train.smishing %>% nrow / train %>% nrow # 추출
+
+train.smishing$text %>% head %>% kable()
+train.smishing$text %>% tail %>% kable()
+```
+smishing 문자 일부를 추출해 보았을 때 **(광고)**라는 단어가 많이 보인다.  
+
+### **광고**라는 글자가 들어가는 문자 메시지는 smishing일 확률이 높을까?
+```{r}
+# 광고라는 글자가 들어가는 문자들
+train[which(train$text %>% str_detect("(광고)")),] %>% head %>% datatable()
+
+
+# smishing 비율
+train[which(train$text %>% str_detect("(광고)")),] %>% filter(smishing == 1) %>% nrow / 
+  train[which(train$text %>% str_detect("(광고)")),] %>% nrow
+```
+**(광고)** 라는 글자가 들어가는 관측치 중 절반이 smising
+
+
+## Save RData
+```{r R 데이터 저장, eval=FALSE, include=FALSE}
+save(train, test, train.smishing, # data.frame
+     train.str_length, # vector
+     file = "../data/RData/eda.RData")
+```

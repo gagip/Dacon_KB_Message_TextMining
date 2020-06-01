@@ -1,0 +1,80 @@
+---
+title: '0111'
+author: "chanwoo"
+date: '2020 1 11 '
+output: html_document
+---
+
+
+```{r setting, include=FALSE}
+# 전처리 패키지
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(lubridate)
+# 시각화 패키지
+library(ggplot2)
+library(xtable)
+# 마크다운 패키지
+library(DT)
+library(knitr)
+# 텍스트 마이닝 패키지
+library(tidytext)
+library(KoNLP)
+# 모델링 패키지
+library(caret)
+library(naivebayes)
+# 모델링 평가
+library(ROCR)
+
+load("../data/RData/0109_naive_model.RData")
+```
+
+
+```{r}
+# 0109 모델 평가
+confusionMatrix(test$pred, test$smishing)
+```
+
+```{r}
+# 피드백 데이터셋
+test_FP = test %>% filter(pred == 0, smishing == 1)
+test_FP %>% head
+
+test_FN = test %>% filter(pred == 1, smishing == 0)
+test_FN %>% head
+```
+
+
+
+```{r}
+test_FP$text %>% head(50) %>% kable
+```
+- 부채  
+- 담보  
+- 채무  
+- 상환  
+- 미납  
+- 체납  
+- 금융  
+- 대출  
+- 대환  
+- 대부  
+- 다중  
+
+대출형 단어 많이 출현  
+
+
+```{r}
+test_FN$text %>% head(50) %>% kable
+```
+- 영업일  
+- 증명서  
+- 할인  
+- 포인트  
+
+- 신청방법  
+-- http (홈페이지)  
+-- 스토어 (앱)  
+
+non-smishing에 홈페이지 및 앱 신청방법 많이 출현  

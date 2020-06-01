@@ -1,0 +1,68 @@
+---
+title: "0109"
+author: "chanwoo"
+date: '2020 1 7 '
+output: html_document
+---
+
+
+# 피드백
+- 넘버링은 non-smishing에서도 발견(정확히는 대출형 non-smishing)  
+
+
+```{r setting, include=FALSE}
+# 전처리 패키지
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(lubridate)
+# 시각화 패키지
+library(ggplot2)
+# 마크다운 패키지
+library(DT)
+library(knitr)
+# 텍스트 마이닝 패키지
+library(tidytext)
+library(KoNLP)
+# 모델링 패키지
+library(caret)
+library(naivebayes)
+# 모델링 평가
+library(ROCR)
+
+# 데이터 수집
+load("../data/RData/eda.RData")
+load("../data/RData/modeling.RData")
+```
+
+
+## test에서 나온 결과들을 분석해보자
+```{r test dataset feedback}
+test.df %>% head
+```
+
+```{r}
+conf.table = confusionMatrix(test.df$pred, test.df$smishing)
+conf.table
+precision(conf.table$table, relevant = "1")
+```
+confusion matrix를 보면 FN(False Negative)(pred == 1, real == 0)의 데이터 개수가 상당히 높아 precision이 `r precision(conf.table$table, relevant = "1")`로 상대적으로 낮은 편이다.
+
+```{r}
+test.df.FN = test.df %>% filter(pred == 1, smishing == 0) # FN(False Negative) 확인  
+test.df.FN %>% nrow
+test.df.FN %>% head
+```
+
+```{r}
+test.df.FN %>%
+  select(MMS, numbering, bracket, specialty_terms) %>% # 사용한 feature
+  apply(2, function(x){sum(x)/nrow(test.df.FN)})
+```
+dataset FN을 보면 대부분 MMS이면서 numbering이며 괄호가 포함되어 있는 문자 내용들이다.  
+
+이를 통해 도출할 수 있는 결론은 다음과 같다.  
+- 글자 수 조정 필요 (70글자보다 더 폭 넓게 범위를 조정해야 하지 않을까?)  
+- 더미 변수의 한계 -> 빈도 변수로 대체  
+- 전문용어 추가  
+- 설명 변수의 한계 -> feature 추가  

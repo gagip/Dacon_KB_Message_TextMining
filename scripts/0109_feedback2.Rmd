@@ -1,0 +1,100 @@
+---
+title: "0109_feedback2"
+author: "chanwoo"
+date: '2020 1 7 '
+output: html_document
+---
+
+
+# **0109_feedback1.Rmd**를 통해 나온 결론  
+- 글자 수 조정 필요 (70글자보다 더 폭 넓게 범위를 조정해야 하지 않을까?)  
+- 더미 변수의 한계 -> 빈도 변수로 대체  
+- 전문용어 추가  
+- 설명 변수의 한계 -> feature 추가  
+
+```{r setting, include=FALSE}
+# 전처리 패키지
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(lubridate)
+# 시각화 패키지
+library(ggplot2)
+# 마크다운 패키지
+library(DT)
+library(knitr)
+# 텍스트 마이닝 패키지
+library(tidytext)
+library(KoNLP)
+# 모델링 패키지
+library(caret)
+library(naivebayes)
+# 모델링 평가
+library(ROCR)
+
+# 데이터 수집
+load("../data/RData/eda.RData")
+load("../data/RData/modeling.RData")
+```
+
+
+## 글자수 조정
+```{r}
+train$length %>% summary
+```
+train 텍스트 길이 평균 `r train$length %>% mean`
+
+```{r}
+# summary 5
+summary(train[train$smishing == 1,"length"])
+summary(train[train$smishing == 0,"length"])
+```
+
+
+```{r}
+table(train$length > 400,train$smishing)
+prop.table(table(train$length > 400,train$smishing),margin = 2)
+```
+400 글자 채택
+
+## 빈도 변수
+빈도 변수는 기존 문서에 존재
+
+## 전문용어 추가
+추가할 단어
+- 한도  
+- 사기  
+- 최저  
+- 대출
+- KISA
+```{r}
+# 피드백 이전
+# 전문용어 빈도
+specialty_terms_str = paste(c("론", "원리금", "여신"), collapse = "|")
+train$specialty_terms_freq = train$text %>% str_extract_all(specialty_terms_str) %>% sapply(length)
+
+# 전문용어 유무 확인
+table(train$specialty_terms_freq > 0, train$smishing)
+
+# 피드백 이후
+# 전문용어 빈도
+specialty_terms_str = paste(c("론", "원리금", "여신","한도","사기","최저","대출","KISA"), collapse = "|")
+train$specialty_terms_freq = train$text %>% str_extract_all(specialty_terms_str) %>% sapply(length)
+
+# 전문용어 유무 확인
+table(train$specialty_terms_freq > 0, train$smishing)
+```
+범위를 늘리면 smishing 문자도 많이 찾지만 non-smishing도 많이 잡는다.  
+
+
+## 새로운 feature 추가
+- '올림' 단어  
+```{r}
+train$to = train$text %>% str_detect("올림") %>% ifelse(1, 0)
+
+table(train$to, train$smishing)
+```
+**'올림'**이라는 단어는 smishing에 거의 존재하지 않음  
+
+
+

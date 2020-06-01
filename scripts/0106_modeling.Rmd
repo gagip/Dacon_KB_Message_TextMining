@@ -1,0 +1,247 @@
+---
+title: '0106'
+author: "chanwoo"
+date: '2020 1 6 '
+output: html_document
+---
+
+
+# 모델링
+- 종속변수  
+-- smishing (범주형)  
+- 설명변수  
+-- MMS  
+-- 넘버링 여부  
+-- 괄호 빈도  
+-- 전문용어 빈도  
+
+```{r}
+# 전처리 패키지
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(lubridate)
+# 시각화 패키지
+library(ggplot2)
+# 마크다운 패키지
+library(DT)
+library(knitr)
+# 텍스트 마이닝 패키지
+library(tidytext)
+library(KoNLP)
+
+# 데이터 샘플링을 위해 새롭게 불러들인다.
+data = read.csv("../data/train.csv")
+```
+
+
+```{r 데이터 샘플링}
+# 데이터 샘플링
+
+# 랜덤 고정
+set.seed(2019)
+nid = nrow(data)
+rgroup = runif(nid)
+
+train.df = subset(data, rgroup <= 0.7) # 70% 데이터 => train 
+test.df = subset(data, rgroup > 0.7) # 30% 데이터 => test
+
+dim(train.df)
+dim(test.df)
+```
+
+
+
+```{r train feature engineering}
+# train의 설명변수 가공
+
+train.df$length = train.df$text %>% str_length() # 문자길이
+
+train.df$MMS = ifelse(train.df$length > 70, 1, 0) # MMS
+
+# 넘버링
+train.df$text = train.df$text %>% str_replace_all("[\\d.]+\\d+%", " ") # %(백분율) 제거
+numbering_str = "\\d{1,2}\\.[^\\d]" # 넘버링 정규표현식 
+# 넘버링 더미변수
+train.df = train.df %>% mutate(numbering = train.df$text %>% str_extract_all(numbering_str) %>% 
+                       sapply(length) %>%
+                       sapply(function(x){
+                         ifelse(x>1, # 넘버링은 최소 2개 이상이어야 함
+                                1,
+                                0)
+                       }))
+
+
+# 괄호 빈도
+bracket_str = "\\(.*?\\)"
+# 괄호 빈도 변수 생성
+train.df$bracket_freq = train.df$text %>% str_extract_all(bracket_str) %>% sapply(length)
+
+# 전문용어 빈도
+specialty_terms_str = paste(c("론", "원리금", "여신"), collapse = "|")
+train.df$specialty_terms_freq = train.df$text %>% str_extract_all(specialty_terms_str) %>% sapply(length)
+
+```
+
+
+분류 방법은 스펨 분류에서 많이 사용하는 naive baye 사용  
+naive baye를 잘 사용하려면 더미변수로 구성되어 있는 것이 효과적  
+
+```{r 모델링}
+# 모델링 패키지
+library(naivebayes)
+
+# 빈도 변수 => 더미 변수
+train.df$bracket = ifelse(train.df$bracket_freq > 0, 1, 0)
+train.df$specialty_terms = ifelse(train.df$specialty_terms_freq > 0, 1, 0)
+
+# 모델링
+# naive 조건: 종목 변수가 non-numeric
+train.df$smishing = as.factor(train.df$smishing)
+naive_model = naive_bayes(smishing ~ MMS + numbering + bracket + specialty_terms,
+                          data = train.df)
+
+naive_model
+```
+
+```{r test도 똑같이 feature engineering}
+# test의 설명변수 가공
+
+test.df$length = test.df$text %>% str_length() # 문자길이
+
+test.df$MMS = ifelse(test.df$length > 70, 1, 0) # MMS
+
+# 넘버링
+test.df$text = test.df$text %>% str_replace_all("[\\d.]+\\d+%", " ") # %(백분율) 제거
+numbering_str = "\\d{1,2}\\.[^\\d]" # 넘버링 정규표현식 
+# 넘버링 더미변수
+test.df = test.df %>% mutate(numbering = test.df$text %>% str_extract_all(numbering_str) %>% 
+                       sapply(length) %>%
+                       sapply(function(x){
+                         ifelse(x>1, # 넘버링은 최소 2개 이상이어야 함
+                                1,
+                                0)
+                       }))
+
+
+# 괄호 빈도
+bracket_str = "\\(.*?\\)"
+# 괄호 빈도 변수 생성
+test.df$bracket_freq = test.df$text %>% str_extract_all(bracket_str) %>% sapply(length)
+
+# 전문용어 빈도
+specialty_terms_str = paste(c("론", "원리금", "여신"), collapse = "|")
+test.df$specialty_terms_freq = test.df$text %>% str_extract_all(specialty_terms_str) %>% sapply(length)
+
+# 빈도 변수 => 더미 변수
+test.df$bracket = ifelse(test.df$bracket_freq > 0, 1, 0)
+test.df$specialty_terms = ifelse(test.df$specialty_terms_freq > 0, 1, 0)
+
+# 종속변수 factor화
+test.df$smishing = as.factor(test.df$smishing)
+```
+
+
+```{r 모델 적용}
+# 만든 모델을 test에 적용
+predict(naive_model, newdata = test.df) %>% head
+
+test.df$pred = predict(naive_model, newdata = test.df)
+
+test.df %>% head
+```
+
+```{r 모델 평가}
+# 모델 평가
+accuracy = mean(test.df$smishing == test.df$pred) # accuracy
+
+# confusion matrix
+conf.table = table(pred = test.df$pred, real = test.df$smishing)
+conf.table
+
+precision = conf.table[2,2] / sum(conf.table[2,])
+recall = conf.table[2,2] / sum(conf.table[,2])
+
+accuracy
+precision
+recall
+```
+accuracy와 recall가 90% 대이므로  
+잘 분류한 것 같지만 precision을 보면 70%  
+이는 내가 만든 모델(시스템)이 실수를 30% 정도 실수했다는 뜻이다.  
+
+```{r AUC}
+# AUC 계산
+library(ROCR)
+
+calAUC = function(predCol, targetCol){
+  perf = performance(prediction(predCol, targetCol), "auc")
+  as.numeric(perf@y.values)
+}
+
+calAUC(test.df$pred %>% as.numeric(), test.df$smishing %>% as.numeric())
+```
+
+```{r}
+# 모델 적용
+df = read.csv("../data/public_test.csv")
+
+# test의 설명변수 가공
+
+df$length = df$text %>% str_length() # 문자길이
+
+df$MMS = ifelse(df$length > 70, 1, 0) # MMS
+
+# 넘버링
+df$text = df$text %>% str_replace_all("[\\d.]+\\d+%", " ") # %(백분율) 제거
+numbering_str = "\\d{1,2}\\.[^\\d]" # 넘버링 정규표현식 
+# 넘버링 더미변수
+df = df %>% mutate(numbering = df$text %>% str_extract_all(numbering_str) %>% 
+                       sapply(length) %>%
+                       sapply(function(x){
+                         ifelse(x>1, # 넘버링은 최소 2개 이상이어야 함
+                                1,
+                                0)
+                       }))
+
+
+# 괄호 빈도
+bracket_str = "\\(.*?\\)"
+# 괄호 빈도 변수 생성
+df$bracket_freq = df$text %>% str_extract_all(bracket_str) %>% sapply(length)
+
+# 전문용어 빈도
+specialty_terms_str = paste(c("론", "원리금", "여신"), collapse = "|")
+df$specialty_terms_freq = df$text %>% str_extract_all(specialty_terms_str) %>% sapply(length)
+
+# 빈도 변수 => 더미 변수
+df$bracket = ifelse(df$bracket_freq > 0, 1, 0)
+df$specialty_terms = ifelse(df$specialty_terms_freq > 0, 1, 0)
+
+```
+
+```{r test predict}
+# 만든 모델을 test에 적용
+predict(naive_model, newdata = df, type = "prob") %>% head() # 확률 반환
+predict(naive_model, newdata = df, type = "prob")[,2] %>% head() # 1(smishing)일 확률
+
+df$pred = predict(naive_model, newdata = df, type = "prob")[,2]
+
+df %>% head
+```
+
+```{r submit}
+submit = data.frame(id = df$id, smishing = df$pred)
+
+submit %>% head
+write.csv(submit, file = "submision.csv", row.names = F)
+```
+
+```{r 결과 저장}
+save(train.df,
+     test.df,
+     naive_model,
+     calAUC,
+     file = "../data/RData/modeling.RData")
+```
+

@@ -1,0 +1,150 @@
+---
+title: '1230'
+author: "chanwoo"
+date: '2019 12 27 '
+output:
+  word_document: default
+  html_document: default
+---
+
+
+```{r include=FALSE}
+# 전처리 패키지
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(lubridate)
+# 시각화 패키지
+library(ggplot2)
+# 마크다운 패키지
+library(DT)
+library(knitr)
+# 텍스트 마이닝 패키지
+library(tidytext)
+library(KoNLP)
+
+load("../data/RData/eda.RData")
+```
+
+
+## 방법1: SimplePos
+
+token: 의미를 가진 단위 ex) 자소, 형태소, 단어 등   
+
+
+```{r}
+# token 단위 처리
+train %>% head(6) %>% select(id,text) %>%
+  unnest_tokens(output = word, input = text)
+```
+
+```{r}
+SimplePos09("롯데마트가 판매하고 있는 흑마늘 양념 치킨이 논란이 되고 있다.")
+```
+
+```{r}
+# SimplePos09를 이용하여 token 단위 처리
+temp = train %>% head(6) %>% select(id,text) %>%
+  unnest_tokens(output = word, input = text, token = SimplePos09) %>%
+  mutate(pos_order = 1:n())
+temp %>% head(20)
+```
+
+```{r}
+# 불용어 제거
+temp %>%
+  # 명사만 가지고 오자
+  filter(grepl("/n", word)) %>%
+  # 형태소 정보 제거
+  mutate(pos_done = gsub("/.*$", "", word))
+```
+
+pos_done: 형태소 정보 제거한 변수  
+
+grep(): 글자 데이터 내에 찾고자 하는 글자가 있는 위치를 인덱스로 알려줌  
+grepl(): 결과를 T/F로  (=str_detect())  
+gsub(): = str_replace()  
+
+
+```{r}
+temp %>% 
+  # 동사/형용사
+  filter(grepl("/p", word)) %>% 
+  mutate(pos_done = gsub("/.*$", "", word))
+  
+```
+
+
+## 방법2: KoNLP, 사전
+
+```{r eval=FALSE, include=FALSE}
+# 사전 설정
+useSejongDic()
+buildDictionary(ext_dic = c("NIADic"),
+                user_dic = data.frame(readLines("dic.txt", encoding = 'UTF-8'),"ncn")) # 나만의 사전
+```
+
+```{r}
+data = train$text[1:100] # sample data
+data %>% head
+
+# 전반적인 전처리
+## 'X'를 없애고 싶을 때
+data = data %>% str_replace_all("X+", " ")
+data %>% head
+```
+
+
+```{r}
+# 명사 부분만 추출하기
+data = sapply(train$text[1:100], extractNoun, USE.NAMES = F)
+data = unlist(data)
+data %>% head(30)
+```
+  
+전처리 반드시 필요!
+
+
+```{r}
+# 불용사(stop-words) 제거
+update.text <- function(){
+  # spam 사전 읽기
+  spam <- readLines("spam.txt", encoding = "UTF-8")
+  for (i in 1:length(spam)){
+    data <<- gsub(spam[i], "", data) # 사전 안에 있는 단어 삭제
+    data <<- data[data != ""] # 공란 단어들 삭제 
+  }
+  return(head(sort(table(data), decreasing = T), 20)) # 상위 20개 빈도표 출력
+}
+update.text()
+```
+
+
+
+## 주요 단어 빈도 분석
+```{r}
+train %>% head
+
+train_freq = train
+```
+
+
+```{r}
+# 괄호 안의 단어들
+dd = train_freq$text %>% str_extract_all("\\(.+?\\)") %>% lengths
+train_freq$text %>% str_extract_all("\\(.+?\\)") %>% .[which(dd != 0) %>% head]
+train[786,]$text
+```
+
+% 
+괄호에도 많은 단어가 존재함  
+
+```{r}
+train_freq$ad = train_freq$text %>% str_count("(광고)")
+boxplot(ad ~ smishing, train_freq)
+```
+
+```{r}
+train %>% filter(smishing == 0, str_detect(train$text,"원리금[ ]*균등")) %>% select(text) %>% head
+```
+

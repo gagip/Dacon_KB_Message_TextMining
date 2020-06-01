@@ -1,0 +1,173 @@
+---
+title: '0102'
+author: "chanwoo"
+date: '2020 1 2 '
+output: html_document
+---
+
+```{r include=FALSE}
+# 전처리 패키지
+library(dplyr)
+library(tidyr)
+library(stringr)
+library(lubridate)
+# 시각화 패키지
+library(ggplot2)
+# 마크다운 패키지
+library(DT)
+library(knitr)
+# 텍스트 마이닝 패키지
+library(tidytext)
+library(KoNLP)
+
+load("../data/RData/eda.RData")
+```
+
+
+# 넘버링
+*문자 내용에 넘버링이 있으면 높은 확률로 스미싱이다.* 가설 증명  
+
+## 넘버링 이전 전처리 
+넘버링의 형태가 다양각색하기 때문에 넘버링에 대해 정의할 필요가 있음  
+- 1., 2., 3., ...  
+- 1), 2), 3), ...  
+- (1), (2), (3), ...
+- 첫 번째, 두 번째, 세 번째, ...  
+- etc.  
+
+넘버링 외에 다른 숫자들은 임시로 제거한다. 그 이유는 다음과 같다. 
+- 1.(넘버링)과 1.2%(퍼센트)를 컴퓨터가 구분하기 함듬  
+
+
+
+```{r}
+# 일단 숫자가 들어있는 데이터 개수를 확인한다.
+train %>% filter(str_detect(train$text, "[0-9]")) %>% nrow
+
+# 데이터 비율
+train %>% filter(str_detect(train$text, "[0-9]")) %>% nrow / train %>% nrow
+```
+
+숫자가 들어있는 데이터는 `r train %>% filter(str_detect(train$text, "[0-9]")) %>% nrow` 개 있으며,  
+전체 데이터 개수의 `r train %>% filter(str_detect(train$text, "[0-9]")) %>% nrow / train %>% nrow`%를 차지한다.  
+
+
+```{r}
+# text에 숫자 들어있는 문자 데이터셋
+train_num = train %>% filter(str_detect(train$text, "[0-9]"))
+
+train_num$text %>% head(6)
+```
+
+
+
+문자 내용 중 *%*가 들어있는 숫자 제거 (= 백분율 제거)
+```{r}
+# '%' 백분율 제거
+train_num$text %>% str_extract_all("[\\d.]+\\d+%") %>% sapply(length) 
+train_num$text %>% str_extract_all("[\\d.]+\\d+%") %>% unlist() %>% head
+train_num$text = train_num$text %>% str_replace_all("[\\d.]+\\d+%", " ")
+train_num$text %>% str_extract_all("[\\d.]+\\d+%") %>% sapply(length)
+```
+
+```{r}
+# 넘버링 작성
+numbering_str = "\\d(1)\\."
+train_num %>% filter(str_detect(train_num$text, numbering_str)) %>% .$text %>% head
+
+# 넘버링 업데이트
+numbering_str = "\\d{1,2}\\.[^\\d]"
+train_num %>% filter(str_detect(train_num$text, numbering_str)) %>% .$text %>% head
+
+
+# 추출 결과
+train_num$text %>% str_extract_all(numbering_str) %>% head(30)
+train_num$text %>% str_extract_all(numbering_str) %>% tail(30)
+
+# 추출 넘버링 길이
+train_num$text %>% str_extract_all(numbering_str) %>% sapply(length)
+```
+
+넘버링 TRUE, FALSE 가능  
+넘버링 개수(= 최대 넘버링)가 필요하다면 약간의 전처리 필요  
+
+
+```{r numbering variable}
+# 넘버링 더미변수 만들기
+train_num = train_num %>% mutate(numbering = train_num$text %>% str_extract_all(numbering_str) %>% 
+                       sapply(length) %>%
+                       sapply(function(x){
+                         ifelse(x>1, # 넘버링은 최소 2개 이상이어야 함
+                                1,
+                                0)
+                       }))
+
+# 넘버링 검토
+temp = train_num %>% 
+  select(text,numbering) %>%  # text, numbering_str 변수만 
+  filter(numbering == 1)  # numbering_str인 것만
+
+
+temp$text %>% str_extract_all(numbering_str) %>% head
+```
+
+
+```{r}
+# 넘버링 == 1인 데이터 개수 시각화
+
+# train & train_num   merge
+train = left_join(train,
+          train_num %>% select(id, numbering),
+          by = c("id"="id"))
+
+# NA 제거
+train = replace_na(train, list(numbering = 0))
+
+table(smishing = train$smishing, numbering = train$numbering)
+prop.table(table(smishing = train$smishing, numbering = train$numbering), margin = 1)
+```
+
+smishing 문자 중 numbering을 가지고 있는 데이터 개수는 대략 **70%**  
+**smishing과 numbering 어느정도 관계가 있다.**
+
+# 빈도
+*특정 단어의 빈도에 따라 smishing과 관련이 있다.*
+특정 단어 정의  
+- 괄호  
+- 전문 용어  
+
+```{r}
+# 괄호 빈도 구하기
+bracket_str = "\\(.*?\\)"
+train$text %>% str_extract_all(bracket_str) %>% head(30)
+train$text %>% str_extract_all(bracket_str) %>% tail(30)
+
+# 괄호 빈도 변수 생성
+train$bracket_freq = train$text %>% str_extract_all(bracket_str) %>% sapply(length)
+train %>% head
+```
+
+```{r}
+# 전문용어
+specialty_terms_str = paste(c("론", "원리금", "여신"), collapse = "|")
+
+train$text %>% str_extract_all(specialty_terms_str) %>% head(30)
+train$text %>% str_extract_all(specialty_terms_str) %>% tail(30)
+
+# 
+train$specialty_terms_freq = train$text %>% str_extract_all(specialty_terms_str) %>% sapply(length)
+```
+
+```{r}
+# 전문용어, 괄호 빈도와 스미싱의 관계
+# 두 집단의 평균이 통계적으로 다른가? => t.test 사용
+# t.test 사용 전 등분산성이 만족하나 확인
+var.test(bracket_freq ~ smishing, data = train)
+var.test(specialty_terms_freq ~ smishing, data = train)
+t.test(bracket_freq ~ smishing, data = train)
+t.test(specialty_terms_freq ~ smishing, data = train)
+```
+
+
+
+
